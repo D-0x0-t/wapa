@@ -1,0 +1,5 @@
+# ignorar el archivo comandos.git
+comandos.git
+
+# " la clave de acceso
+token.txt
