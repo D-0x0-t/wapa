@@ -1,0 +1,229 @@
+#!/bin/bash
+#
+#	Definicion de funciones
+#
+startstring() {
+	echo ""
+	echo "Automated enablement of monitor mode -- WAPA"
+	echo "		Wireless Access Point Auditor"
+	echo ""
+	echo ""
+}
+
+interfaces() {
+	ifaces=$(ifconfig | grep wl | awk '{print $1}' | tr -d ':')
+	echo "[*] Available wireless interfaces are:"
+	echo "$ifaces"
+	echo ""
+}
+
+#status_interfaz_actual() {
+#	interfaz_actual_parsed=$(iwconfig $2 | grep Mode | awk '{print $1}' | cut -f2 -d":")
+#	#interfaz_actual_parsed=$(echo $interfaz_actual | cut -f2 -d":")
+#} por alguna razon esta funcion no hace su trabajo
+
+getid() {
+	actual_id=$(id | awk '{print $1}' | cut -f2 -d"=")
+}
+
+##################################################################
+
+startstring
+
+getid
+
+if [[ $actual_id =~ (^0)(.*) ]];then
+if [[ $1 = "" ]];then
+	interfaces
+	echo "Use 'wapamon help' for command info!"
+	exit 0
+elif [[ $1 = "status" ]];then
+	if [[ $2 =~ ^wl(.*) ]];then
+		# interfaz_actual=$(iwconfig $2 | grep Mode | awk '{print $1}')
+		# interfaz_actual_parsed=$(echo $interfaz_actual | cut -f2 -d":")
+		interfaz_actual_parsed=$(iwconfig $2 | grep Mode | awk '{print $1}' | cut -f2 -d":")
+		echo "[*] Interface $2 is in mode" $interfaz_actual_parsed
+		exit 0
+	elif [[ $2 = "nm" || $2 = "NetworkManager" ]];then
+		#networkmanager_status=$(systemctl status NetworkManager | grep Active | cut -f1 -d";")
+		echo "[*] NetworkManager service current status is:"
+		systemctl status NetworkManager | grep Active | cut -f1 -d";"
+		exit 0
+	elif [[ $2 = "wpa_supplicant" || $2 = "wpas" ]];then
+		echo "[*] wpa_supplicant service current status is:"
+		systemctl status wpa_supplicant | grep Active | cut -f1 -d";"
+		exit 0
+	elif [[ $2 = "services" ]];then
+		service_status_nm=$(systemctl status NetworkManager | grep Active | cut -f1 -d";" | awk '{print $2}')
+		service_status_wpas=$(systemctl status wpa_supplicant | grep Active | cut -f1 -d";" | awk '{print $2}')
+		echo "[*] NetworkManager is: $service_status_nm"
+		echo ""
+		echo "[*] WPA supplicant is: $service_status_wpas"
+		exit 0
+	else
+		echo "[!] You didn't specified any wireless interface or network service"
+		echo ""
+		echo "The correct syntax for this command would be:"
+		echo "wapamon.sh status wlanX/services"
+		exit 1
+	fi
+elif [[ $1 = "enable" && $2 =~ ^wl(.*) || $1 = "start" && $2 =~ ^wl(.*) ]];then
+nmstatus=$(systemctl status NetworkManager | grep Active | cut -f1 -d";" | awk '{print $2}')
+wpasupplicantstatus=$(systemctl status wpa_supplicant | grep Active | cut -f1 -d";" | awk '{print $2}')
+	if [[ $nmstatus = "active" ]];then
+		echo "[*] Stopping NetworkManager service"
+		systemctl stop NetworkManager 2>/dev/null 2>&1 # estas redirecciones eliminan el output del comando
+		sleep 1.5
+		if [[ $? -eq 0 ]];then
+			echo ""
+			echo "[*] NetworkManager service was successfully stopped"
+			echo ""
+		else
+			echo "[!] Something went wrong while stopping NetworkManager"
+			exit 1
+		fi
+	elif [[ $nmstatus = "inactive" ]];then
+		echo "[*] NetworkManager is already inactive"
+		echo ""
+	fi
+	if [[ $wpasupplicantstatus = "active" ]];then
+		echo "[*] Stopping WPA supplicant service"
+		echo ""
+		systemctl stop wpa_supplicant 2>/dev/null 2>&1
+		sleep 1.5
+		if [[ $? -eq 0 ]];then
+			echo "[*] WPA supplicant service was successfully stopped"
+			echo ""
+		else
+			echo "[!] Something went wrong while stopping wpa_supplicant"
+			exit 1
+		fi
+	elif [[ $wpasupplicantstatus = "inactive" ]];then
+		echo "[*] WPA supplicant is already inactive"
+		echo ""
+	fi
+	echo "[*] Enabling monitor mode on interface: $2"
+	sleep 1
+	echo ""
+	ifconfig $2 down 2>/dev/null
+	if [[ $? -eq 0 ]];then
+		macchanger -A $2 2>/dev/null 1>/dev/null
+		if [[ $? -eq 0 ]];then
+			echo "[*] MAC address changed successfully"
+			echo ""
+		else
+			echo "[!] MAC address couldn't be changed"
+			exit 1
+		fi
+		iwconfig $2 mode monitor 2>/dev/null
+		ifconfig $2 up 2>/dev/null
+		is_actual_iface_mon=$(iwconfig $2 | grep Mode | awk '{print $1}' | cut -f2 -d":")
+		if [[ $is_actual_iface_mon = "Monitor"  ]];then
+			echo "[*] $2 has monitor mode enabled"
+		else
+			echo "[!] $2 couldn't be set on monitor mode"
+			exit 1
+		fi
+	else
+		echo ""
+		echo "[!] Something went wrong when stopping $2 interface"
+		echo "Is $2 a real interface?"
+		echo ""
+		interfaces
+		exit 1
+	fi
+elif [[ $1 = "disable" && $2 =~ ^wl(.*) || $1 = "stop" && $2 =~ ^wl(.*) ]];then
+	echo "[*] Disabling monitor mode on $2"
+	echo ""
+ 	ifconfig $2 down 2>/dev/null
+	if [[ $? -eq 0 ]];then
+		macchanger -p $2 2>/dev/null 1>/dev/null
+		if [[ $? -eq 0 ]];then
+			echo "[*] MAC address restored successfully!"
+			echo ""
+		else
+			echo "[*] MAC address couldn't be restored"
+			exit 1
+		fi
+		iwconfig $2 mode managed 2>/dev/null
+		ifconfig $2 up 2>/dev/null
+		is_actual_iface_managed=$(iwconfig $2 | grep Mode | awk '{print $1}' | cut -f2 -d":")
+		if [[ $is_actual_iface_managed = "Managed" ]];then
+			echo "[*] Monitor mode has been disabled on $2"
+		else
+			echo "[!] Something went wrong!"
+			exit 1
+		fi
+	else
+		echo ""
+		echo "[!] $2 couldn't be stopped"
+		echo "Is $2 a real interface?"
+		echo ""
+		interfaces
+		exit 1
+	fi
+	echo ""
+	echo "[*] Restarting NetworkManager service"
+	systemctl start NetworkManager 2>/dev/null 2>&1
+	if [[ $? -eq 0 ]];then
+		echo ""
+		echo "[*] NetworkManager service restarted successfully!"
+	else
+		echo ""
+		echo "[*] NetworkManager couldn't be restarted"
+		exit 1
+	fi
+	echo ""
+	echo "[*] Restarting WPA supplicant service"
+	systemctl start wpa_supplicant 2>/dev/null 2>&1
+	if [[ $? -eq 0 ]];then
+		echo ""
+		echo "[*] WPA supplicant service restarted successfully!"
+	else
+		echo ""
+		echo "[!] Something went wrong while restarting wpa_supplicant"
+		exit 1
+	fi
+elif [[ $1 = "help" ]];then
+	echo "Examples of usage:"
+	echo ""
+	echo "Enable monitor mode on any interface:"
+	echo ""
+	echo "wapamon enable wlan0"
+	echo "wapamon start wlan1"
+	echo ""
+	echo "---------------------------------------"
+	echo ""
+	echo "Disable monitor mode on any interface:"
+	echo ""
+	echo "wapamon disable wlan0"
+	echo "wapamon stop wlan1"
+	echo ""
+	echo "---------------------------------------"
+	echo ""
+	echo "Status of networking services:"
+	echo ""
+	echo "1.- NetworkManager service"
+	echo "wapamon status NetworkManager"
+	echo "wapamon status nm"
+	echo ""
+	echo "2.- WPA supplicant service"
+	echo "wapamon status wpa_supplicant"
+	echo "wapamon status wpas"
+	echo ""
+	echo "3.- Both of them"
+	echo "wapamon status services"
+	echo ""
+	echo "---------------------------------------"
+	echo ""
+	echo "Status of wireless network interfaces:"
+	echo ""
+	echo "wapamon status wlan0"
+fi
+exit 0
+else
+	echo "[!] You must be root for executing this program!"
+	echo ""
+	echo "Use 'wapamon help' for more info"
+	exit 1
+fi
