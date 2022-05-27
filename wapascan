@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 import time
 import os
 import argparse
@@ -38,7 +38,7 @@ intf = arg.interface
 #Mode dependant execution
 if mode == "table":
 	if arg.interval is None:
-		os.system("python wapascan.py --help")
+		os.system("wapascan --help")
 		print("")
 		print("[!] System exception:")
 		sys.exit("Argument -i must be defined in order to set the refresh interval. Try using -i 0.5")
@@ -54,7 +54,7 @@ if mode == "table":
 		scan1_show_database = "--show"
 	if arg.v is True:
 		scan1_verbose = "-v"
-	scan1_command = ("python wapascan-scripts/scan1.py %s %s %s %s %s %s %s"% (intf, scan1_interval, scan1_channel, scan1_bssid, scan1_database, scan1_show_database, scan1_verbose))
+	scan1_command = ("wapascan_table %s %s %s %s %s %s %s"% (intf, scan1_interval, scan1_channel, scan1_bssid, scan1_database, scan1_show_database, scan1_verbose))
 	os.system(scan1_command)
 if mode == "airodump":
 	if arg.channel is not None:
@@ -65,5 +65,5 @@ if mode == "airodump":
 		scan2_bssid = ("--bssid %s"% arg.bssid)
 	if arg.write is not None:
 		scan2_write = ("--write %s"% arg.write)
-	scan2_command = ("python wapascan-scripts/scan2.py %s %s %s %s %s"% (intf, scan2_channel, scan2_essid, scan2_bssid, scan2_write))
+	scan2_command = ("wapascan_airodump %s %s %s %s %s"% (intf, scan2_channel, scan2_essid, scan2_bssid, scan2_write))
 	os.system(scan2_command)

