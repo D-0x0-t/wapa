@@ -79,7 +79,7 @@ def A_class_attack():
 	print("[*] Formatting for subtypes:\n0x00, 0x02, 0x04, 0x05, 0x08 and EAPOL")
 	time.sleep(1)
 	format = ('tshark -r scan.pcap -Y "(wlan.fc.type_subtype == 0x00 || wlan.fc.type_subtype == 0x02 || wlan.fc.type_subtype == 0x04 || wlan.fc.type_subtype == 0x05 || wlan.fc.type_subtype == 0x08 || eapol)" -F pcap -w scan.pcap')
-	#os.system(format)
+	os.system(format)
 	if verb == 1:
 		print("[*] Scan formatted correctly, file scan.pcap was rewritten")
 		print("")

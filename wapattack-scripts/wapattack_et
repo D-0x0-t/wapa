@@ -93,6 +93,7 @@ def handler(signum, frame):
 	os.system("iptables -t nat -F PREROUTING > /dev/null 2>&1")
 	os.system("iptables -t nat -F POSTROUTING > /dev/null 2>&1")
 	os.system(f"ifconfig {intf} up 0.0.0.0")
+	os.system(f"rm -R {dirpath}") # eliminar directorio wapa_et_files
 	exit(1)
 
 def dnsm_creation():
@@ -224,4 +225,7 @@ while True:
 		print("This is a debug message generated every minute, you can disable it with -q")
 		print("")
 	if mitm == 1:
-		os.system(f"cat /srv/wapa_data/data.txt 2>/dev/null")
+		if webserver == "rogue_ap":
+			os.system("cat /usr/sbin/mitm_webserver/rogue_ap/data.txt 2>/dev/null")
+		else:
+			os.system(f"cat /srv/wapa_data/data.txt 2>/dev/null")

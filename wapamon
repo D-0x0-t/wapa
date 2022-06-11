@@ -39,8 +39,6 @@ if [[ $1 = "" ]];then
 	exit 0
 elif [[ $1 = "status" ]];then
 	if [[ $2 =~ ^wl(.*) ]];then
-		# interfaz_actual=$(iwconfig $2 | grep Mode | awk '{print $1}')
-		# interfaz_actual_parsed=$(echo $interfaz_actual | cut -f2 -d":")
 		interfaz_actual_parsed=$(iwconfig $2 | grep Mode | awk '{print $1}' | cut -f2 -d":")
 		echo "[*] Interface $2 is in mode" $interfaz_actual_parsed
 		exit 0
@@ -64,7 +62,7 @@ elif [[ $1 = "status" ]];then
 		echo "[!] You didn't specified any wireless interface or network service"
 		echo ""
 		echo "The correct syntax for this command would be:"
-		echo "wapamon.sh status wlanX/services"
+		echo "wapamon status wlanX/services"
 		exit 1
 	fi
 elif [[ $1 = "enable" && $2 =~ ^wl(.*) || $1 = "start" && $2 =~ ^wl(.*) ]];then
