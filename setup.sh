@@ -30,6 +30,7 @@ cp wapattack-scripts/wapattack_et $p
 cp wapattack-scripts/wapattack_fuzzer $p
 cp --recursive wapattack-scripts/mitm_webserver/ $p/mitm_webserver
 cp wapa_animated_sequence $p
+cp wapa $p
 mkdir /srv/wapa_data
 sleep 2
 echo "[+] WAPA is ready for usage..."
