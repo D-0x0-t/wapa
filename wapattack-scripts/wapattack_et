@@ -216,7 +216,7 @@ if mitm == 1:
 	autoauth.start()
 
 while True:
-	sleep(10)
+	sleep(60)
 	if quiet == 0:
 		print("")
 		os.system("clear")
