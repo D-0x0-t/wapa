@@ -16,6 +16,7 @@ apt-get install hostapd -y > /dev/null 2>&1 &
 apt-get install dnsmasq -y > /dev/null 2>&1 &
 apt-get install aircrack-ng -y > /dev/null 2>&1 &
 apt-get install hashcat-utils -y > /dev/null 2>&1 &
+apt-get install tshark -y > /dev/null 2>&1 &
 sleep 2
 echo "[+] Copying files to /usr/sbin..."
 echo ""
