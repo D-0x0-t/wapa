@@ -32,6 +32,17 @@ cp --recursive wapattack-scripts/mitm_webserver/ $p/mitm_webserver
 cp wapa_animated_sequence $p
 cp wapa $p
 mkdir /srv/wapa_data
+pip install pandas > /dev/null 2>&1 &
+pip install scapy > /dev/null 2>&1 &
+pip install argparse > /dev/null 2>&1 &
+pip install termcolor > /dev/null 2>&1 &
+pip install time > /dev/null 2>&1 &
+pip install random > /dev/null 2>&1 &
+pip install textwrap > /dev/null 2>&1 &
+pip install signal > /dev/null 2>&1 &
+pip install threading > /dev/null 2>&1 &
+pip install sqlite3 > /dev/null 2>&1 &
+pip install string > /dev/null 2>&1 &
 sleep 2
 echo "[+] WAPA is ready for usage..."
 echo ""
