@@ -13,6 +13,7 @@ echo ""
 echo "Please do NOT shut down the computer!"
 echo ""
 apt-get install hostapd -y > /dev/null 2>&1 &
+apt-get install macchanger -y > /dev/null 2>&1 &
 apt-get install dnsmasq -y > /dev/null 2>&1 &
 apt-get install aircrack-ng -y > /dev/null 2>&1 &
 apt-get install hashcat-utils -y > /dev/null 2>&1 &
