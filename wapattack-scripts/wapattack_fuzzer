@@ -5,7 +5,7 @@
 #
 from scapy.all import *
 import argparse
-import os, sys
+import os, sys, signal
 from time import sleep
 import string
 import random
@@ -20,8 +20,10 @@ class SmartFormatter(argparse.HelpFormatter):
 
 #Variables
 verb = 0
+debug = 0
 wordlist = 0
 do_channel_hop = 0
+random_security = 1
 sys.tracebacklimit=0
 
 #Arguments
@@ -30,7 +32,9 @@ parser.add_argument("interface", help="R|Interface to use")
 parser.add_argument("-f", help="R|Specify a file to use as wordlist")
 parser.add_argument("-c", "--channel", help="R|Disable channel hopping to execute the program in <CHANNEL>\n"
 "It's recommended to use this flag in order to damage the channel specified")
-parser.add_argument("-v", help="R|Verbosity", action="store_true")
+parser.add_argument("-v", help="R|Verbosity (level 1)", action="store_true")
+parser.add_argument("-vv", help="R|Verbosity (level 2) -- debugging", action="store_true")
+parser.add_argument("-s", "--security", help="R|Specify security mode for the networks", choices=['OPN', 'WEP', 'WPA', 'WPA2'])
 args = parser.parse_args()
 intf = args.interface
 
@@ -40,6 +44,13 @@ if args.f is not None:
 
 if args.v is True:
 	verb = 1
+
+if args.vv is True:
+	verb = 1
+	debug = 1
+
+if args.security is not None:
+	random_security = 0
 
 if args.channel is None:
 	do_channel_hop = 1
@@ -66,12 +77,20 @@ def channel_hop():
 		chan = chan % 14 + 1
 		sleep(0.5)
 
+def handler(signum, frame):
+	print("\n\n[!] Exitting")
+	os.system("tput cnorm")
+	exit(0)
+
+signal.signal(signal.SIGINT, handler)
+
 #Pre-script // perform channel hop if required
 if do_channel_hop == 1:
 	chan_hopper = threading.Thread(target=channel_hop,daemon=True)
 	chan_hopper.start()
 
 #Script
+os.system("tput civis")
 if wordlist == 0:
 	while True:
 		currchan_cmd = ("iwlist %s channel | grep -i current | awk '{print $5}'"% intf)
@@ -87,7 +106,18 @@ if wordlist == 0:
 		dsset = Dot11Elt(ID="DSset",info="\x01")
 		tim = Dot11Elt(ID="TIM",info="\x00\x01\x00\x00")
 		rates = Dot11Elt(ID="Rates",info="\x03\x12\x96\x18\x24\x30\x48\x60")
-		rand_sec = random.randrange(0,5)
+		if random_security == 1:
+			rand_sec = random.randrange(0,5)
+		else:
+			if args.security == "OPN":
+				rand_sec = 0
+			elif args.security == "WEP":
+				rand_sec = 1
+			elif args.security == "WPA":
+				rand_sec = 2
+			elif args.security == "WPA2":
+				rand_sec = 3
+			
 		if rand_sec == 0:
 			# OPN AP
 			beacon = Dot11Beacon(cap="ESS")
@@ -123,6 +153,13 @@ if wordlist == 0:
 			"\x00\x0f\xac\x02"      # PSK
 			"\x00\x00"))            # RSN (no extras)
 
+
+		pkt = RadioTap()/Dot11(proto=0,type=0,subtype=8,addr1=dst,addr2=bssid_mac,addr3=bssid_mac)/beacon/essid/rsn/rates/dsset/tim
+		def send_packets():
+			sendp(pkt,iface=intf,count=-1,inter=0.25,verbose=0)
+		sender_thread = threading.Thread(group=None,target=send_packets,daemon=True)
+		sender_thread.start()
+		
 		if verb:
 			print("")
 			print(u'\u2500'*cols + "\n")
@@ -130,17 +167,17 @@ if wordlist == 0:
 			print("    - BSSID: " + bssid_mac)
 			print("    - ESSID: " + essid_name)
 			print("    - Security: " + secur )
-			print("")
-			print("    - Currently working on channel " + currchan)
+			print("    - Channel: " + currchan)
+			if debug:
+				print("")
+				print("    [>] Debug stats:")
+				print("        - Parent PID:", os.getpid())
+				print("        - Current thread PID:", sender_thread.native_id)
+				active_threads = threading.active_count() - 1
+				print("        - Generated networks (threads):", active_threads)
 			print("")
 			print("[+] Sending beacons...")
-
-		pkt = RadioTap()/Dot11(proto=0,type=0,subtype=8,addr1=dst,addr2=bssid_mac,addr3=bssid_mac)/beacon/essid/rsn/rates/dsset/tim
-		#threading.Thread(sendp(pkt,iface=intf,count=100,inter=0.25,verbose=0)) #ver como meterle hilos a esto?????????
-		def send_packets():
-			sendp(pkt,iface=intf,count=-1,inter=0.25,verbose=0)
-		sender_thread = threading.Thread(group=None,target=send_packets,daemon=True)
-		sender_thread.start()
+		
 		sleep(2)
 elif wordlist == 1:
 	while True:
@@ -159,7 +196,17 @@ elif wordlist == 1:
 		dsset = Dot11Elt(ID="DSset",info="\x01")
 		tim = Dot11Elt(ID="TIM",info="\x00\x01\x00\x00")
 		rates = Dot11Elt(ID="Rates",info="\x03\x12\x96\x18\x24\x30\x48\x60")
-		rand_sec = random.randrange(0,5)
+		if random_security == 1:
+			rand_sec = random.randrange(0,5)
+		else:
+			if args.security == "OPN":
+				rand_sec = 0
+			elif args.security == "WEP":
+				rand_sec = 1
+			elif args.security == "WPA":
+				rand_sec = 2
+			elif args.security == "WPA2":
+				rand_sec = 3
 		if rand_sec == 0:
 			# OPN AP
 			beacon = Dot11Beacon(cap="ESS")
@@ -195,17 +242,6 @@ elif wordlist == 1:
 			"\x00\x0f\xac\x02"      # PSK
 			"\x00\x00"))            # RSN (no extras)
 
-		if verb:
-			print("")
-			print(u'\u2500'*cols + "\n")
-			print("[*] Generated AP with this information:")
-			print("    - BSSID: " + bssid_mac)
-			print("    - ESSID: " + essid_name)
-			print("    - Security: " + secur )
-			print("")
-			print("    - Currently working on channel " + currchan)
-			print("")
-			print("[+] Sending beacons...")
 
 		pkt = RadioTap()/Dot11(proto=0,type=0,subtype=8,addr1=dst,addr2=bssid_mac,addr3=bssid_mac)/beacon/essid/rsn/rates/dsset/tim
 		def send_packets_wlst():
@@ -216,4 +252,30 @@ elif wordlist == 1:
 			n = 1
 		else:
 			n += 1
+		
+		if verb:
+			print("")
+			print(u'\u2500'*cols + "\n")
+			print("[*] Generated AP with this information:")
+			print("    - BSSID: " + bssid_mac)
+			print("    - ESSID: " + essid_name)
+			print("    - Security: " + secur )
+			print("    - Channel: " + currchan)
+			if debug:
+				print("")
+				print("    [>] Debug stats:")
+				print("        - Parent PID:", os.getpid())
+				print("        - Current thread PID:", sender_thread.native_id)
+				active_threads = threading.active_count() - 1
+				print("        - Generated networks (threads):", active_threads)
+				wl_lenght_cmd = ("wc -l %s | awk '{print $1}'"% wordlist_path)
+				wl_length_output = subprocess.check_output(wl_lenght_cmd,shell=True,text=True)
+				percentage_1 = (n-1) / int(wl_length_output)
+				percentage_2 = round(percentage_1 * 100, 2)
+				percentage = str(percentage_2)
+				print("        - Wordlist progress:", str(n-1)+"/"+wl_length_output)
+				print("        - Percentage completed: "+percentage+"%")
+			print("")
+			print("[+] Sending beacons...")
+
 		sleep(2)
